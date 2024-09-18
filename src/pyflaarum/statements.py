@@ -1,8 +1,12 @@
 from . import objects
+import re
+from typing import List
 
 def name_validate(name: str) -> str:
-  if "." in name or " " in name or "\t" in name or ":" in name or "\n" in name or "/" in name or "~" in name:
-    raise ValueError("object name must not contain space, '.', ':', '/', ~ ")
+  invalid_chars = (".", " ", "\t", ":", "\n", "/", "~")
+  for ichar in invalid_chars:
+    if ichar in name:
+      raise ValueError("object name must not contain space, '.', ':', '/', ~ ")
   
   return name
 
@@ -108,3 +112,197 @@ def format_table_obj(table_obj: objects.Table) -> str:
 
   return stmt
 
+
+
+def special_split_line(line: str) -> List[str]:
+  line = line.strip()
+  splits = []
+  tmp_word = ""
+  index = 0
+
+  while index < len(line):
+    ch = line[index]
+    if ch == "'":
+        try:
+          next_quote_index = line[index+1:].index("'")
+          tmpWord = line[index+1 : index+next_quote_index+1]
+          splits.append(tmp_word)
+          tmp_word = ""
+          index += next_quote_index + 2
+          continue
+        except:
+           raise ValueError(f"The line \"{line}\" has a quote and no second quote.")
+        
+    elif ch in (" ", "\t"):
+        if tmp_word:
+            splits.append(tmp_word)
+            tmp_word = ""
+    else:
+        tmp_word += ch
+    index += 1
+
+  if tmp_word:
+      splits.append(tmp_word)
+
+  return splits
+
+
+def parse_where_sub_stmt(where_part: str) -> objects.Where:
+  where_objs = []
+  for part in where_part.splitlines():
+    part = part.strip()
+    if not part:
+      continue
+
+    parts = special_split_line(part)
+    if len(parts) < 2:
+        raise ValueError(f'The part "{part}" is not up to two words.')
+
+    if not where_objs:
+        where_obj = objects.Where()
+        where_obj.field_name=parts[0]
+        where_obj.relation=parts[1]
+        if where_obj.relation == "in":
+          where_obj.field_values = parts[2:]
+        else:
+          where_obj.field_value = parts[2]
+    else:
+      where_obj = objects.Where()
+      where_obj.joiner = parts[0]
+      where_obj.field_name=parts[1]
+      where_obj.relation=parts[2]
+      if where_obj.relation == "in":
+        where_obj.field_values = parts[3:]
+      else:
+        where_obj.field_value = parts[3]
+
+    where_objs.append(where_obj)
+
+  found_and = False
+  found_or = False
+  for where_obj in where_objs:
+    if where_obj.joiner == "and":
+        found_and = True
+    if where_obj.joiner == "or":
+        found_or = True
+
+    if found_and and found_or:
+        raise ValueError("Cannot use both 'and' and 'or' in a where section.")
+
+  return where_objs
+
+
+def parse_search_stmt(stmt: str) -> objects.Stmt:
+    stmt = stmt.strip()
+    stmt_obj = objects.Stmt()
+    
+    for part in stmt.splitlines():
+      part = part.strip()
+      if not part:
+          continue
+
+      if part.startswith("table:"):
+          parts = part[len("table:"):].split()
+          if not parts:
+              raise ValueError("The 'table:' part is required and accepts a table name followed by two optional words")
+          stmt_obj.TableName = parts[0]
+          if len(parts) > 1:
+            for p in parts[1:]:
+              if p == "expand":
+                stmt_obj.expand = True
+              elif p == "distinct":
+                stmt_obj.distinct = True
+      elif part.startswith("fields:"):
+        stmt_obj.fields = part[len("fields:"):].split()
+      elif part.startswith("start_index:"):
+        start_index_str = part[len("start_index:"):].strip()
+        try:
+            stmt_obj.StartIndex = int(start_index_str)
+        except ValueError:
+            raise ValueError(f"The data '{start_index_str}' for the 'start_index:' part is not a number.")
+      elif part.startswith("limit:"):
+          limit_str = part[len("limit:"):].strip()
+          try:
+              stmt_obj.Limit = int(limit_str)
+          except ValueError:
+              raise ValueError(f"The data '{limit_str}' for the 'limit:' part is not a number.")
+      elif part.startswith("order_by:"):
+        parts = part[len("order_by:"):].split()
+        if len(parts) != 2:
+          raise ValueError("The words for 'order_by:' part must be two: a field and either of 'asc' or 'desc'")
+        stmt_obj.OrderBy = parts[0]
+        if parts[1] not in ["asc", "desc"]:
+          raise ValueError(f"The order direction must be either of 'asc' or 'desc'. Instead found '{parts[1]}'")
+        stmt_obj.OrderDirection = parts[1]
+
+    have_multi = "joiner:" in stmt
+    if have_multi:
+      stmt = stmt.strip()
+      stmt_joiner = ""
+      for part in stmt.split('\n'):
+        part = part.strip()
+        if not part:
+          continue
+
+        if part.startswith("joiner:"):
+          opt = part[len("joiner:"):].strip()
+          if opt not in ["and", "or"]:
+            raise ValueError("joiner only accepts either 'and' or 'or'")
+          else:
+            stmt_joiner = opt
+          break
+
+      where_opts = []
+      # where1
+      where1_part_begin = stmt.index("where1:")
+      where1_part_end = stmt[where1_part_begin:].index("::")
+      if where1_part_end == -1:
+        raise ValueError("Every where section must end with '::'")
+      where1_part = stmt[where1_part_begin+len("where1:"):where1_part_begin+where1_part_end]
+      where1_structs = parse_where_sub_stmt(where1_part)
+      where_opts.append(where1_structs)
+
+      # where2
+      where2_part_begin = stmt.index("where2:")
+      if where2_part_begin == -1:
+        raise ValueError("A statement with 'final_stmt:' must have 'where1:' and 'where2:' sections")
+
+      where2_part_end = stmt[where2_part_begin:].index("::")
+      if where2_part_end == -1:
+        raise ValueError("Every where section must end with '::'")
+      where2_part = stmt[where2_part_begin+len("where2:"):where2_part_begin+where2_part_end]
+      where2_structs = parse_where_sub_stmt(where2_part)
+      where_opts.append(where2_structs)
+
+      where3_part_begin = stmt.find("where3:")
+      if where3_part_begin != -1:
+        where3_part_end = stmt[where3_part_begin:].index("::")
+        if where3_part_end == -1:
+          raise ValueError("Every where section must end with '::'")
+        where3_part = stmt[where3_part_begin+len("where3:"):where3_part_begin+where3_part_end]
+        where3_structs = parse_where_sub_stmt(where3_part)
+        where_opts.append(where3_structs)
+
+      where4_part_begin = stmt.find("where4:")
+      if where4_part_begin != -1:
+        where4_part_end = stmt[where4_part_begin:].index("::")
+        if where4_part_end == -1:
+          raise ValueError("Every where section must end with '::'")
+        where4_part = stmt[where4_part_begin+len("where4:"):where4_part_begin+where4_part_end]
+        where4_structs = parse_where_sub_stmt(where4_part)
+        where_opts.append(where4_structs)
+
+      stmt_obj.Multi = True
+      stmt_obj.MultiWhereOptions = where_opts
+      stmt_obj.Joiner = stmt_joiner
+
+    else:
+      where_part_begin = stmt.find("where:")
+      if where_part_begin != -1:
+        where_part = stmt[where_part_begin+len("where:"):]
+        where_objs = parse_where_sub_stmt(where_part)
+
+        stmt_obj.Multi = False
+        stmt_obj.WhereOptions = where_objs
+
+    return stmt_obj
