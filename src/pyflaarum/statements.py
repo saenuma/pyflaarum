@@ -205,7 +205,7 @@ def parse_search_stmt(stmt: str) -> objects.Stmt:
           parts = part[len("table:"):].split()
           if not parts:
               raise ValueError("The 'table:' part is required and accepts a table name followed by two optional words")
-          stmt_obj.TableName = parts[0]
+          stmt_obj.table = parts[0]
           if len(parts) > 1:
             for p in parts[1:]:
               if p == "expand":
@@ -217,23 +217,23 @@ def parse_search_stmt(stmt: str) -> objects.Stmt:
       elif part.startswith("start_index:"):
         start_index_str = part[len("start_index:"):].strip()
         try:
-            stmt_obj.StartIndex = int(start_index_str)
+            stmt_obj.start_index = int(start_index_str)
         except ValueError:
             raise ValueError(f"The data '{start_index_str}' for the 'start_index:' part is not a number.")
       elif part.startswith("limit:"):
           limit_str = part[len("limit:"):].strip()
           try:
-              stmt_obj.Limit = int(limit_str)
+              stmt_obj.limit = int(limit_str)
           except ValueError:
               raise ValueError(f"The data '{limit_str}' for the 'limit:' part is not a number.")
       elif part.startswith("order_by:"):
         parts = part[len("order_by:"):].split()
         if len(parts) != 2:
           raise ValueError("The words for 'order_by:' part must be two: a field and either of 'asc' or 'desc'")
-        stmt_obj.OrderBy = parts[0]
+        stmt_obj.order_by = parts[0]
         if parts[1] not in ["asc", "desc"]:
           raise ValueError(f"The order direction must be either of 'asc' or 'desc'. Instead found '{parts[1]}'")
-        stmt_obj.OrderDirection = parts[1]
+        stmt_obj.order_direction = parts[1]
 
     have_multi = "joiner:" in stmt
     if have_multi:
