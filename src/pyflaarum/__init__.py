@@ -250,20 +250,6 @@ class flaacl:
     else:
       raise flaa_error(10, robj.text)
     
-  def sum_rows(self, stmt: str) -> int:
-    data = {"key-str": self.key_str, "stmt": stmt}
-    try:
-      statements.parse_search_stmt(stmt)
-    except Exception as e:
-      raise flaa_error(12, e.message)
-     
-    rurl = self.addr + "sum-rows/" + self.proj
-    robj = requests.post(rurl, data=data, verify=False)
-    if robj.status_code == requests.codes.ok:
-      return int(robj.text.strip())
-    else:
-      raise flaa_error(10, robj.text)
-  
   def update_rows(self, stmt: str, to_update: Dict[str, any]) -> None:
     data = {"key-str": self.key_str, "stmt": stmt}
     try:
