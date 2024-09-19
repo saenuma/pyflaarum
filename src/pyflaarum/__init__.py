@@ -127,7 +127,7 @@ class flaacl:
   
   def insert_row(self, table: str, to_insert: dict) -> int:
     data = {"key-str": self.key_str}
-    for key, value in to_insert:
+    for key, value in to_insert.items():
       data[key] = value
     
     table_obj = self.current_table_structure_parsed(table)
